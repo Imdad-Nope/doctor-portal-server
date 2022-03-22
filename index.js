@@ -4,11 +4,15 @@ const cors = require('cors');
 const admin = require("firebase-admin");
 require('dotenv').config();
 const { MongoClient } = require('mongodb');
-
+const ObjectId = require('mongodb').ObjectId;
+const stripe = require("stripe")(process.env.STRIPE_ACCOUNT);
+// const serviceAccount = require('./service.JSON')
+// console.log(service)
 const port = process.env.PORT || 5000;
 
-
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+// console.log(serviceAccount)
+// const serviceAccount = JSON.parse(require("./service.json"));
+const serviceAccount = require('./service.json')
 
 admin.initializeApp({
     credential: admin.credential.cert(serviceAccount)
@@ -25,7 +29,6 @@ const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology:
 // For admin
 
 async function verifyToken(req, res, next) {
-
     if (req.headers?.authorization?.startsWith('Bearer ')) {
         const token = req.headers.authorization.split(' ')[1];
     }
@@ -37,7 +40,7 @@ async function verifyToken(req, res, next) {
 
     }
     next();
-}
+};
 
 
 
@@ -59,10 +62,33 @@ async function run() {
             res.json(appointments);
         })
 
+        // /For stripe payment
+        app.get('/appointments/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: ObjectId(id) };
+            const result = await appointmentCollection.findOne(query);
+            res.json(result);
+        })
+
         // Post means storing data in the server site
         app.post('/appointments', async (req, res) => {
             const appointment = req.body;
             const result = await appointmentCollection.insertOne(appointment);
+            res.json(result);
+        })
+
+        // for stripe confirmation update
+
+        app.put('/appointments/:id', async (req, res) => {
+            const id = req.params.id;
+            const payment = req.body;
+            const filter = { _id: ObjectId(id) };
+            const updateDoc = {
+                $set: {
+                    payment: payment
+                }
+            };
+            const result = await appointmentCollection.updateOne(filter, updateDoc);
             res.json(result);
         })
 
@@ -120,6 +146,18 @@ async function run() {
             }
 
         })
+
+        // For stripe
+        app.post("/create-payment-intent", async (req, res) => {
+            const paymentInfo = req.body;
+            const amount = paymentInfo.price * 100;
+            const paymentIntent = await stripe.paymentIntents.create({
+                currency: 'usd',
+                amount: amount,
+                payment_method_types: ['card']
+            });
+            res.json({ clientSecret: paymentIntent.client_secret });
+        });
     }
     finally {
         // await client.close();
@@ -133,4 +171,4 @@ app.get('/', (req, res) => {
 
 app.listen(port, () => {
     console.log(`listening at ${port}`)
-})
+});
